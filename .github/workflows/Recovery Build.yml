@@ -106,6 +106,16 @@ jobs:
         git clone ${{ github.event.inputs.COMMON_TREE_URL }} -b master ./${{ github.event.inputs.COMMON_PATH }} || git clone ${{ github.event.inputs.COMMON_TREE_URL }} ./${{ github.event.inputs.COMMON_PATH }}
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
+    - name: Inject OrangeFox variables
+      run: |
+        cd ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/${{ github.event.inputs.DEVICE_PATH }}
+        echo "" >> BoardConfig.mk
+        echo "# OrangeFox Required Flags" >> BoardConfig.mk
+        echo "TW_MAX_BRIGHTNESS := 255" >> BoardConfig.mk
+        echo "TW_DEFAULT_BRIGHTNESS := 100" >> BoardConfig.mk
+        echo "OF_KEEP_FORK_AFTER_MULTI_DEER := 1" >> BoardConfig.mk
+        echo "OF_ALLOW_DISABLE_NAVBAR := 0" >> BoardConfig.mk
+
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
@@ -117,6 +127,7 @@ jobs:
         set +e
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
+        export FOX_BUILD_TYPE="Unofficial"
         set -e
         lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng && make clean && mka adbd ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
