@@ -1,4 +1,4 @@
-name: Recovery Build
+name: Recovery Build (OrangeFox)
 
 on:
   workflow_dispatch:
@@ -10,33 +10,35 @@ on:
       MANIFEST_BRANCH:
         description: 'MANIFEST_BRANCH'
         required: true
-        default: '11.0'
+        default: '12.1'
       DEVICE_TREE_URL:
         description: 'DEVICE_TREE_URL'
         required: true
-        default: 'https://github.com/OrangeFoxRecovery/device_xiaomi_garden'
+        default: 'https://github.com/Halk56855/android_recovery_samsung_a04'
       DEVICE_TREE_BRANCH:
         description: 'DEVICE_TREE_BRANCH'
         required: true
-        default: 'fox_11.0_Q'
+        default: 'twrp-12.1'
       DEVICE_PATH:
         description: 'DEVICE_PATH'
         required: true
-        default: 'device/xiaomi/garden'
+        default: 'device/samsung/a04'
       COMMON_TREE_URL:
-        description: 'COMMON_TREE_URL (if no common tree, leave blank)'
+        description: 'COMMON_TREE_URL'
         required: false
+        default: 'https://github.com/rsuplaygrnd/android_recovery_samsung_mt6765-common.git'
       COMMON_PATH:
-        description: 'COMMON_PATH (if no common tree, leave blank)'
+        description: 'COMMON_PATH'
         required: false
+        default: 'device/samsung/jdm-mt6765-cmn'
       DEVICE_NAME:
         description: 'DEVICE_NAME'
         required: true
-        default: 'garden'
+        default: 'a04'
       MAKEFILE_NAME:
         description: 'MAKEFILE_NAME'
         required: true
-        default: 'twrp_garden'
+        default: 'twrp_a04'
       BUILD_TARGET:
         description: 'BUILD_TARGET'
         required: true
@@ -45,16 +47,13 @@ on:
 jobs:
   build:
     if: github.event.repository.owner.id == github.event.sender.id
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
- 
-    # You might want to Checkout your repo first, but not mandatory
     - name: Check Out
       uses: actions/checkout@v4
 
-    # Cleanup The Actions Workspace Using Custom Composite Run Actions
     - name: Cleanup
       uses: rokibhasansagar/slimhub_actions@main
 
@@ -67,15 +66,14 @@ jobs:
 
     - name: Prepare the build environment
       run: |
-        sudo apt update && sudo apt upgrade -y
+        sudo apt update
         DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
-            linux-modules-extra-$(uname -r) \
-            git python3 tar aria2
+            git python3 tar aria2 curl zip unzip bc ccache schedtool
         git clone https://gitlab.com/OrangeFox/misc/scripts
         cd scripts
-        sudo bash setup/android_build_env.sh
-        sed -i 's/cd -/cd ../g' setup/install_android_sdk.sh
-        sudo bash setup/install_android_sdk.sh
+        sudo bash setup/android_build_env.sh || true
+        sed -i 's/cd -/cd ../g' setup/install_android_sdk.sh || true
+        sudo bash setup/install_android_sdk.sh || true
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Install OpenJDK
@@ -83,15 +81,6 @@ jobs:
       with:
         distribution: 'zulu'
         java-version: '11'
-
-    - name: Setup SSH Keys
-      if: ${{ startsWith(github.event.inputs.MANIFEST_URL, 'git@github.com') || 
-          startsWith(github.event.inputs.DEVICE_TREE_URL, 'git@github.com') ||
-          startsWith(github.event.inputs.COMMON_TREE_URL, 'git@github.com') }}
-      uses: webfactory/ssh-agent@v0.9.0
-      with:
-          ssh-private-key: |
-            ${{ secrets.SSH_PRIVATE_KEY }}
 
     - name: Sync OrangeFox sources and minimal manifest
       run: |
@@ -104,7 +93,8 @@ jobs:
     - name: Clone device tree
       run: |
         cd ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        git clone ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
+        git clone ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }} || git clone ${{ github.event.inputs.DEVICE_TREE_URL }} ./${{ github.event.inputs.DEVICE_PATH }}
+        rm -f ./${{ github.event.inputs.DEVICE_PATH }}/Android.mk
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Clone common tree
@@ -113,7 +103,7 @@ jobs:
         && github.event.inputs.COMMON_PATH != null
       run: |
         cd ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        git clone ${{ github.event.inputs.COMMON_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.COMMON_PATH }}
+        git clone ${{ github.event.inputs.COMMON_TREE_URL }} -b master ./${{ github.event.inputs.COMMON_PATH }} || git clone ${{ github.event.inputs.COMMON_TREE_URL }} ./${{ github.event.inputs.COMMON_PATH }}
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Set Swap Space
@@ -130,13 +120,13 @@ jobs:
         set -e
         lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng && make clean && mka adbd ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
-      continue-on-error: true
 
     - name: Check the output directory before uploading
       run: |
         ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/
         echo
         ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/
+      continue-on-error: true
 
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
@@ -144,11 +134,11 @@ jobs:
         files: |
           ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.img
           ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.zip
-        name: ${{ github.event.inputs.DEVICE_NAME }}-${{ github.run_id }}
-        tag_name: ${{ github.run_id }}
+        name: "a04-orangefox-release"
+        tag_name: "ofox-a04-v1"
         body: |
-          Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
+          Manifest: OrangeFox ${{ github.event.inputs.MANIFEST_BRANCH }}
           Device: ${{ github.event.inputs.DEVICE_NAME }}
-          Target: ${{ github.event.inputs.BUILD_TARGET }}
+          Target: ${{ github.event.inputs.BUILD_TARGET }}.img
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
